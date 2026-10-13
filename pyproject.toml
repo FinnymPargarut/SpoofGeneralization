@@ -1,0 +1,35 @@
+[project]
+name = "spoof"
+version = "0.1.0"
+description = "Generalization of deep audio anti-spoofing to unseen speech synthesis systems"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "librosa>=0.10",
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "scikit-learn>=1.5",
+    "soundfile>=0.12",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+model = ["torch>=2.4", "transformers>=4.44"]
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "spoof"
+module-root = ""
+
+# Локально GPU нет, а torch с PyPI тянет несколько ГБ библиотек CUDA.
+# На Kaggle используется предустановленный torch с CUDA.
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
