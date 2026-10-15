@@ -240,9 +240,11 @@ class SSLAASIST(nn.Module):
 
 def hf_key(fairseq_key: str) -> str | None:
     """Tak's checkpoint key to SSLAASIST key, None for weights the model does not have."""
-    if not fairseq_key.startswith("ssl_model.model."):
-        return fairseq_key
-    key = fairseq_key.removeprefix("ssl_model.model.")
+    # The DF checkpoint was saved from DataParallel, the LA one was not.
+    key = fairseq_key.removeprefix("module.")
+    if not key.startswith("ssl_model.model."):
+        return key
+    key = key.removeprefix("ssl_model.model.")
     if key.startswith(FAIRSEQ_UNUSED):
         return None
     for pattern, repl in FAIRSEQ_RENAMES:

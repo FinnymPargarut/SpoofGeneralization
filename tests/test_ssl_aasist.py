@@ -74,6 +74,20 @@ def test_hf_key_keeps_head():
     assert hf_key("HtrgGAT_layer_ST11.att_weightM") == "HtrgGAT_layer_ST11.att_weightM"
 
 
+@pytest.mark.parametrize(
+    ("tak", "ours"),
+    [
+        ("module.pos_S", "pos_S"),
+        (
+            "module." + FAIRSEQ + "encoder.pos_conv.0.weight_g",
+            "ssl.encoder.pos_conv_embed.conv.weight_g",
+        ),
+    ],
+)
+def test_hf_key_drops_dataparallel_prefix(tak, ours):
+    assert hf_key(tak) == ours
+
+
 def test_forward():
     torch.manual_seed(0)
     model = SSLAASIST(TINY).eval()
