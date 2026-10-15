@@ -33,3 +33,7 @@ torch = { index = "pytorch-cpu" }
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
+
+[tool.ruff]
+# Official ASVspoof code is kept as published for the EER check.
+extend-exclude = ["tests/asvspoof_eval_metrics.py"]

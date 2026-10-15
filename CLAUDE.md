@@ -11,6 +11,7 @@ Generalization of Deep Audio Anti-Spoofing: Detecting Synthetic Speech from Unse
 ## Команды
 - Пакеты: uv (не pip, не poetry)
 - После правок: ruff check, ruff format
+- Тесты: uv run pytest
 
 
 ## Как отвечать в чате и писать в плане
