@@ -63,7 +63,8 @@ step() {
 }
 
 score() {
-    step "$1" python "$repo/scripts/score.py" --name "$1" --checkpoint "$2" \
+    step "$1" python "$repo/scripts/score.py" --model ssl_aasist --name "$1" \
+        --checkpoint "$2" --sets dev eval eval_trim eval_pad itw \
         --asvspoof "$asvspoof" --itw "$itw" --etrim "$etrim" --out "$out"
 }
 

@@ -1,12 +1,12 @@
-"""Scores of a Tak SSL-AASIST checkpoint, a CSV and a JSON note per set.
+"""Scores of a model on protocol sets, a CSV and a JSON note per set.
 
-Score is the bona fide logit as in Tak's code: higher means bona fide.
-Sets already scored in the output folder are skipped.
+ssl_aasist: Tak's checkpoint on the first 4 s, the bona fide logit as in Tak's code.
+lcnn: model.pt from train_lcnn.py on the whole recording, one trial per batch.
+Higher score means bona fide. Sets already scored in the output folder are skipped.
 """
 
 import argparse
 import json
-import subprocess
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,100 +16,73 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 
-from spoof.audio import model_input
-from spoof.data import (
-    COLUMNS,
-    asvspoof2019,
-    read_etrim,
-    read_in_the_wild,
-    with_pad,
-    with_trim,
-)
+from spoof.audio import SR, prepare, repeat_crop
+from spoof.data import COLUMNS
+from spoof.lcnn import LCNN
+from spoof.notes import commit, device_note, on_all_gpus
+from spoof.sets import SETS, protocol
 from spoof.ssl_aasist import load_model
 
-SETS = ["dev", "eval", "eval_trim", "eval_pad", "itw"]
+
+def cropped(records: list[dict]) -> tuple[torch.Tensor, int]:
+    wavs = [prepare(r) for r in records]
+    batch = np.stack([repeat_crop(w) for w in wavs])
+    return torch.from_numpy(batch), sum(w.size for w in wavs)
 
 
-def protocols(args) -> dict[str, pd.DataFrame]:
-    marks = read_etrim(args.etrim)
-    train = asvspoof2019(args.asvspoof, "train")
-    donors = with_trim(train[train["label"] == "bonafide"], marks)
-    eval_ = asvspoof2019(args.asvspoof, "eval")
-    return {
-        "dev": asvspoof2019(args.asvspoof, "dev"),
-        "eval": eval_,
-        "eval_trim": with_trim(eval_, marks),
-        "eval_pad": with_pad(eval_, donors, args.seed),
-        "itw": read_in_the_wild(args.itw / "meta.csv", args.itw),
-    }
+def whole(records: list[dict]) -> tuple[torch.Tensor, int]:
+    (record,) = records
+    wav = prepare(record)
+    return torch.from_numpy(wav).unsqueeze(0), wav.size
 
 
-def collate(records: list[dict]) -> torch.Tensor:
-    return torch.from_numpy(np.stack([model_input(r) for r in records]))
+def load(name: str, checkpoint: Path) -> torch.nn.Module:
+    if name == "ssl_aasist":
+        return on_all_gpus(load_model(checkpoint))
+    model = LCNN()
+    model.load_state_dict(torch.load(checkpoint, map_location="cpu", weights_only=True))
+    return model.cuda().eval() if torch.cuda.is_available() else model.eval()
 
 
-def on_all_gpus(model: torch.nn.Module) -> torch.nn.Module:
-    if not torch.cuda.is_available():
-        return model
-    on_gpu = model.cuda()
-    if torch.cuda.device_count() > 1:
-        return torch.nn.DataParallel(on_gpu)
-    return on_gpu
+def bona_fide(name: str, output: torch.Tensor) -> torch.Tensor:
+    return output[:, 1] if name == "ssl_aasist" else output
 
 
-def device_note() -> dict:
-    if not torch.cuda.is_available():
-        return {"device": "cpu"}
-    return {
-        "device": torch.cuda.get_device_name(0),
-        "gpus": torch.cuda.device_count(),
-        "gpu0_peak_gb": round(torch.cuda.max_memory_allocated(0) / 1e9, 2),
-    }
-
-
-def commit() -> str:
-    repo = Path(__file__).resolve().parent.parent
-    git = ["git", "-C", str(repo), "rev-parse", "--short", "HEAD"]
-    return subprocess.run(
-        git, check=False, capture_output=True, text=True
-    ).stdout.strip()
-
-
-def score(model, protocol: pd.DataFrame, args, name: str) -> np.ndarray:
+def score(model, protocol_: pd.DataFrame, args, name: str) -> tuple[np.ndarray, int]:
+    lcnn = args.model == "lcnn"
     loader = DataLoader(
-        protocol.to_dict("records"),
-        batch_size=args.batch_size,
+        protocol_.to_dict("records"),
+        batch_size=1 if lcnn else args.batch_size,
         num_workers=args.workers,
-        collate_fn=collate,
+        collate_fn=whole if lcnn else cropped,
         pin_memory=torch.cuda.is_available(),
     )
     device = next(model.parameters()).device
     started = time.time()
     scores = []
+    samples = 0
     with torch.inference_mode():
-        for i, batch in enumerate(loader):
-            logits = model(batch.to(device, non_blocking=True))
-            scores.append(logits[:, 1].float().cpu().numpy())
-            if i % 100 == 0:
-                done = min((i + 1) * args.batch_size, len(protocol))
+        for i, (batch, batch_samples) in enumerate(loader):
+            output = model(batch.to(device, non_blocking=True))
+            scores.append(bona_fide(args.model, output).float().cpu().numpy())
+            samples += batch_samples
+            if i % 1000 == 0:
                 elapsed = time.time() - started
-                print(f"{name}: {done}/{len(protocol)}, {elapsed:.0f} s", flush=True)
-    return np.concatenate(scores)
+                print(f"{name}: batch {i}/{len(loader)}, {elapsed:.0f} s", flush=True)
+    return np.concatenate(scores), samples
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model", choices=["ssl_aasist", "lcnn"], required=True)
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--name", required=True, help="output subfolder")
-    parser.add_argument(
-        "--asvspoof", type=Path, required=True, help="folder with ASVspoof2019_LA_*"
-    )
-    parser.add_argument(
-        "--itw", type=Path, required=True, help="folder with meta.csv and wav"
-    )
-    parser.add_argument("--etrim", type=Path, required=True, help="LA2019-sil-trim.log")
+    parser.add_argument("--sets", nargs="+", choices=SETS, required=True)
     parser.add_argument("--out", type=Path, required=True)
-    parser.add_argument("--sets", nargs="+", choices=SETS, default=SETS)
+    parser.add_argument("--asvspoof", type=Path, help="folder with ASVspoof2019_LA_*")
+    parser.add_argument("--itw", type=Path, help="folder with meta.csv and wav")
+    parser.add_argument("--etrim", type=Path, help="LA2019-sil-trim.log")
+    parser.add_argument("--stage2", type=Path, help="unpacked fetch_stage2.py output")
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--seed", type=int, default=0, help="donors for eval_pad")
@@ -118,26 +91,30 @@ def main():
     out = args.out / args.name
     out.mkdir(parents=True, exist_ok=True)
     todo = [s for s in args.sets if not (out / f"{s}.csv").exists()]
-    model = on_all_gpus(load_model(args.checkpoint))
-    for name, protocol in protocols(args).items():
-        if name not in todo:
-            continue
+    if not todo:
+        return
+    model = load(args.model, args.checkpoint)
+    params = sum(p.numel() for p in model.parameters())
+    for name in todo:
+        protocol_ = protocol(name, args, args.seed)
         started = datetime.now(UTC).isoformat(timespec="seconds")
         t0 = time.time()
-        scores = score(model, protocol, args, name)
+        scores, samples = score(model, protocol_, args, name)
         seconds = round(time.time() - t0, 1)
-        protocol[COLUMNS].assign(score=scores).to_csv(out / f"{name}.csv", index=False)
+        protocol_[COLUMNS].assign(score=scores).to_csv(out / f"{name}.csv", index=False)
         note = {
-            "model": "ssl_aasist",
+            "model": args.model,
             "checkpoint": args.checkpoint.name,
+            "params": params,
             "set": name,
-            "silence": protocol["silence"].iloc[0],
-            "files": len(protocol),
+            "silence": protocol_["silence"].iloc[0],
+            "files": len(protocol_),
+            "audio_seconds": round(samples / SR, 1),
             "commit": commit(),
             "started": started,
             "seconds": seconds,
-            "batch_size": args.batch_size,
-            "pad_seed": args.seed,
+            "batch_size": 1 if args.model == "lcnn" else args.batch_size,
+            "seed": args.seed,
         }
         note.update(device_note())
         (out / f"{name}.json").write_text(json.dumps(note, indent=2))
