@@ -7,6 +7,7 @@ from spoof.data import (
     read_asvspoof2019,
     read_etrim,
     read_in_the_wild,
+    read_local,
     read_protocol,
     with_pad,
     with_trim,
@@ -33,6 +34,7 @@ def test_read_asvspoof2019(tmp_path):
             "label": "bonafide",
             "attack": "-",
             "speaker": "LA_0079",
+            "language": "en",
             "silence": "orig",
         },
         {
@@ -40,6 +42,7 @@ def test_read_asvspoof2019(tmp_path):
             "label": "spoof",
             "attack": "A01",
             "speaker": "LA_0079",
+            "language": "en",
             "silence": "orig",
         },
     ]
@@ -69,6 +72,7 @@ def test_read_in_the_wild(tmp_path):
     assert list(df["label"]) == ["spoof", "bonafide"]
     assert set(df["attack"]) == {"-"}
     assert set(df["speaker"]) == {"Alec Guinness"}
+    assert set(df["language"]) == {"en"}
 
 
 @pytest.mark.parametrize(
@@ -96,8 +100,8 @@ def test_protocol_roundtrip(tmp_path):
     "text",
     [
         "file_name,label\n/a.flac,spoof\n",
-        "file_name,label,attack,speaker,silence\n",
-        "file_name,label,attack,speaker,silence\n/a.flac,fake,-,LA_0079,orig\n",
+        "file_name,label,attack,speaker,language,silence\n",
+        "file_name,label,attack,speaker,language,silence\n/a.flac,fake,-,LA_0079,en,orig\n",
     ],
 )
 def test_read_protocol_broken(tmp_path, text):
@@ -150,6 +154,7 @@ def protocol_of(names):
             "label": "spoof",
             "attack": "A01",
             "speaker": "LA_0079",
+            "language": "en",
             "silence": "orig",
         }
     )
@@ -180,3 +185,32 @@ def test_with_pad_without_donors():
     donors = with_trim(protocol_of(["a"]), MARKS).iloc[:0]
     with pytest.raises(ValueError):
         with_pad(protocol_of(["c"]), donors, seed=0)
+
+
+LOCAL = (
+    "file_name,label,attack,speaker,language,silence,gain_db\n"
+    "ruls/a.flac,bonafide,-,5397,ru,orig,3.5\n"
+)
+
+
+def test_read_local(tmp_path):
+    df = read_local(write(tmp_path / "ruls.csv", LOCAL), tmp_path)
+    assert list(df.columns) == [*COLUMNS, "gain_db"]
+    assert list(df["file_name"]) == [str(tmp_path / "ruls" / "a.flac")]
+    assert df["speaker"].iloc[0] == "5397"
+    assert df["gain_db"].iloc[0] == 3.5
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        "file_name,label,attack,speaker,language,silence\n",
+        "label,attack,speaker,language,silence\nbonafide,-,1,ru,orig\n",
+        "file_name,label,attack,speaker,language,silence\na.flac,real,-,1,ru,orig\n",
+        "file_name,label,attack,speaker,language,silence\na.flac,bonafide,-,,ru,orig\n",
+    ],
+)
+def test_read_local_broken(tmp_path, text):
+    with pytest.raises(ValueError):
+        read_local(write(tmp_path / "set.csv", text), tmp_path)

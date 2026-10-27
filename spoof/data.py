@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 # file_name and label as in Speech DF Arena protocols, the rest are ours.
-COLUMNS = ["file_name", "label", "attack", "speaker", "silence"]
+COLUMNS = ["file_name", "label", "attack", "speaker", "language", "silence"]
 
 
 def _check(df: pd.DataFrame) -> pd.DataFrame:
@@ -30,6 +30,7 @@ def read_asvspoof2019(protocol: Path, audio_dir: Path) -> pd.DataFrame:
     )
     audio = Path(audio_dir)
     df["file_name"] = [str(audio / f"{name}.flac") for name in df["name"]]
+    df["language"] = "en"
     df["silence"] = "orig"
     return _check(df)
 
@@ -50,12 +51,22 @@ def read_in_the_wild(meta_csv: Path, audio_dir: Path) -> pd.DataFrame:
     df["file_name"] = [str(audio / name) for name in df["file"]]
     df["label"] = df["label"].replace({"bona-fide": "bonafide"})
     df["attack"] = "-"
+    df["language"] = "en"
     df["silence"] = "orig"
     return _check(df)
 
 
 def read_protocol(path: Path) -> pd.DataFrame:
     return _check(pd.read_csv(path, dtype=str))
+
+
+def read_local(protocol: Path, audio_dir: Path) -> pd.DataFrame:
+    """Protocol from fetch_stage2.py: file names relative to audio_dir, extra columns kept."""
+    df = pd.read_csv(protocol, dtype=dict.fromkeys(COLUMNS, str))
+    if "file_name" in df:
+        df["file_name"] = [str(Path(audio_dir) / name) for name in df["file_name"]]
+    extra = df.drop(columns=COLUMNS, errors="ignore").reset_index(drop=True)
+    return pd.concat([_check(df), extra], axis=1)
 
 
 def read_etrim(log: Path) -> pd.DataFrame:
