@@ -37,6 +37,16 @@ def test_protocol_local(paths):
     assert list(df["gain_db"]) == [1.5]
 
 
+def test_protocol_smoke_rows(paths, monkeypatch):
+    monkeypatch.setenv("SMOKE_ROWS", "1")
+    (paths.itw / "meta.csv").write_text(
+        "file,speaker,label\n0.wav,A,spoof\n1.wav,A,spoof\n2.wav,B,bona-fide\n"
+    )
+    df = protocol("itw_trim40", paths)
+    assert sorted(df["label"]) == ["bonafide", "spoof"]
+    assert list(df.index) == [0, 1]
+
+
 def test_protocol_unknown(paths):
     with pytest.raises(ValueError):
         protocol("ruls_trim", paths)

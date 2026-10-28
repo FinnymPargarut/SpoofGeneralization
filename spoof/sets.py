@@ -1,5 +1,6 @@
 """Protocols of all sets by name, shared by the scoring and feature scripts."""
 
+from os import environ
 from pathlib import Path
 
 import pandas as pd
@@ -41,10 +42,18 @@ def protocol(name: str, paths, seed: int = 0) -> pd.DataFrame:
     """paths holds folders asvspoof, itw, stage2 and the LA19etrim log etrim.
 
     A set needs only its own inputs, the rest may be None. seed picks eval_pad donors.
+    SMOKE_ROWS in the environment keeps that many first rows of each class.
     """
+    df = _protocol(name, paths, seed)
+    # A short Kaggle run on a few rows catches path and shape errors before hours of work.
+    rows = int(environ.get("SMOKE_ROWS", "0"))
+    return df.groupby("label").head(rows).reset_index(drop=True) if rows else df
+
+
+def _protocol(name: str, paths, seed: int) -> pd.DataFrame:
     base = name.removesuffix("_trim40")
     if base != name:
-        return protocol(base, paths, seed).assign(silence="trim40")
+        return _protocol(base, paths, seed).assign(silence="trim40")
     if name in ["train", "dev", "eval"]:
         return asvspoof2019(paths.asvspoof, name)
     if name == "eval_trim":

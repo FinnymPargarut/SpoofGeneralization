@@ -1,15 +1,24 @@
 #!/usr/bin/env bash
 # Stage 2 on a Kaggle GPU session. Part frozen: SSL-AASIST on the stage 2 sets, the
 # RuASD shortcut audit, frozen XLS-R features and logistic regression. Part lcnn:
-# LFCC-LCNN with three seeds. Part all: both. Notebook inputs: the ASVspoof 2019
-# mirror, the stage 1 and stage 2 inputs datasets; internet on for the XLS-R weights.
-# A rerun skips finished steps.
+# LFCC-LCNN with three seeds. Part all: both. Part smoke: both on SMOKE_ROWS rows of
+# each class, one LCNN seed for one epoch, results in the scratch folder.
+# Notebook inputs: the ASVspoof 2019 mirror, the stage 1 and stage 2 inputs datasets;
+# internet on for the XLS-R weights. A rerun skips finished steps.
 set -euo pipefail
 part=${1:-all}
 input=${2:-/kaggle/input}
-out=${3:-/kaggle/working/stage2}
 # Unpacked In-the-Wild and stage 2 audio must stay out of the saved working folder.
 scratch=${4:-/tmp}
+out=${3:-/kaggle/working/stage2}
+seeds=(0 1 2)
+epochs=100
+if [ "$part" = smoke ]; then
+    out=$scratch/smoke
+    seeds=(0)
+    epochs=1
+    export SMOKE_ROWS=100
+fi
 repo=$(cd "$(dirname "$0")/.." && pwd)
 export PYTHONPATH=$repo
 mkdir -p "$out"
@@ -100,10 +109,10 @@ frozen() {
 
 lcnn() {
     local seed name
-    for seed in 0 1 2; do
+    for seed in "${seeds[@]}"; do
         name=lcnn_seed$seed
         step "$name" python "$repo/scripts/train_lcnn.py" --asvspoof "$asvspoof" \
-            --out "$out/$name" --seed "$seed"
+            --out "$out/$name" --seed "$seed" --epochs "$epochs"
         step "${name}_scores" python "$repo/scripts/score.py" --model lcnn \
             --name "$name" --checkpoint "$out/$name/model.pt" \
             --sets dev eval itw "${new_sets[@]}" "${inputs[@]}" --out "$out"
@@ -113,7 +122,7 @@ lcnn() {
 case $part in
     frozen) frozen ;;
     lcnn) lcnn ;;
-    all) frozen; lcnn ;;
+    all | smoke) frozen; lcnn ;;
     *) echo "unknown part $part" >&2; exit 1 ;;
 esac
 

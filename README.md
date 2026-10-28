@@ -58,7 +58,7 @@ Stage 2. New notebook, internet on, GPU T4 x2, inputs: the ASVspoof 2019 mirror 
 !git clone --depth 1 https://github.com/FinnymPargarut/SpoofGeneralization /tmp/repo
 !bash /tmp/repo/scripts/kaggle_stage2.sh all
 ```
-`all` can be split into `frozen` and `lcnn` runs. Download the `stage2` folder without `features` into `outputs/stage2`, then locally:
+`all` can be split into `frozen` and `lcnn` runs. `smoke` runs both on 100 recordings of each class and one LCNN epoch in about half an hour, worth doing interactively before the long runs. Download the `stage2` folder without `features` into `outputs/stage2`, then locally:
 ```
 uv run python scripts/evaluate.py outputs/stage1 outputs/stage2
 ```
