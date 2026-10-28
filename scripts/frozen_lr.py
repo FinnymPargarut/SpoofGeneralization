@@ -1,7 +1,7 @@
 """Logistic regression on frozen XLS-R features, as in Pascu et al. 2024: C = 1e6, no scaling.
 
 Every layer is fitted on ASVspoof 2019 train; the layer with the lowest dev EER becomes
-model xlsr_lr. The last layer fitted on train and dev together repeats Pascu as
+model xlsr_lr, ties broken by the lower dev log loss. The last layer fitted on train and dev together repeats Pascu as
 xlsr_lr_pascu, for the EER check only: its dev scores are in-sample. Both get a score
 CSV and a JSON note per set, the note carries the feature extraction cost. layers.md
 has every layer on every set: EER, or FRR at the layer's dev threshold for bona fide
@@ -52,6 +52,21 @@ def layer_scores(features: np.ndarray, weights: np.ndarray, bias: np.ndarray):
         chunk = np.asarray(features[start : start + CHUNK], dtype=np.float32)
         scores[start : start + CHUNK] = np.einsum("nlh,lh->nl", chunk, weights) + bias
     return scores
+
+
+def log_loss(protocol: pd.DataFrame, scores: np.ndarray) -> float:
+    bona, spoof = classes(protocol, scores)
+    losses = np.concatenate([np.logaddexp(0, -bona), np.logaddexp(0, spoof)])
+    return float(losses.mean())
+
+
+def pick_layer(protocol: pd.DataFrame, scores: np.ndarray) -> int:
+    """Train attacks reappear in dev, so several layers may separate it with zero EER."""
+    keys = []
+    for layer in range(STATES):
+        layer_eer = eer(*classes(protocol, scores[:, layer]))[0]
+        keys.append((layer_eer, log_loss(protocol, scores[:, layer]), layer))
+    return min(keys)[2]
 
 
 def classes(protocol: pd.DataFrame, scores: np.ndarray):
@@ -149,10 +164,7 @@ def main():
     scores = {}
     for name in names:
         scores[name] = layer_scores(features[name], weights, bias)
-    dev_errors = []
-    for layer in range(STATES):
-        dev_errors.append(eer(*classes(protocols["dev"], scores["dev"][:, layer]))[0])
-    best = int(np.argmin(dev_errors))
+    best = pick_layer(protocols["dev"], scores["dev"])
 
     args.out.mkdir(parents=True, exist_ok=True)
     table = layers_table(protocols, scores, best)
