@@ -6,7 +6,7 @@ pytest.importorskip("transformers")
 import torch
 from transformers import Wav2Vec2Config, Wav2Vec2Model
 
-from spoof.xlsr import length_batches, normalized, pooled_states
+from spoof.xlsr import length_batches, normalized, pooled_states, with_state_hooks
 
 TINY = Wav2Vec2Config(
     hidden_size=32,
@@ -47,3 +47,17 @@ def test_pooled_states_ignore_padding():
     apart = np.concatenate([pooled_states(model, [w]) for w in wavs])
     assert together.shape == (2, TINY.num_hidden_layers + 1, TINY.hidden_size)
     assert np.allclose(together, apart, atol=1e-4)
+
+
+def replica_states(model, calls: int) -> int:
+    """Number of hidden states on the last of `calls` DataParallel-style replica calls."""
+    wav = torch.zeros(1, 4000)
+    for _ in range(calls):
+        replica = model._replicate_for_data_parallel()
+        _, _, states = replica(wav, output_hidden_states=True, return_dict=False)
+    return len(states)
+
+
+def test_with_state_hooks_survives_replicas():
+    model = with_state_hooks(Wav2Vec2Model(TINY).eval())
+    assert replica_states(model, calls=3) == TINY.num_hidden_layers + 1

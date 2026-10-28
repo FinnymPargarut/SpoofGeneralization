@@ -17,9 +17,9 @@ import torch
 from soundfile import read
 from torch.nn.functional import binary_cross_entropy_with_logits
 
-from spoof.data import asvspoof2019
 from spoof.lcnn import LCNN
 from spoof.notes import commit, device_note
+from spoof.sets import protocol
 
 
 def pcm(path: str) -> np.ndarray:
@@ -27,11 +27,11 @@ def pcm(path: str) -> np.ndarray:
     return wav
 
 
-def load_split(asvspoof: Path, split: str, workers: int):
-    protocol = asvspoof2019(asvspoof, split)
-    with Pool(workers) as pool:
-        wavs = pool.map(pcm, protocol["file_name"], chunksize=64)
-    labels = (protocol["label"] == "bonafide").to_numpy(dtype=np.float32)
+def load_split(args, split: str):
+    protocol_ = protocol(split, args)
+    with Pool(args.workers) as pool:
+        wavs = pool.map(pcm, protocol_["file_name"], chunksize=64)
+    labels = (protocol_["label"] == "bonafide").to_numpy(dtype=np.float32)
     return wavs, labels
 
 
@@ -89,8 +89,8 @@ def main():
     torch.manual_seed(args.seed)
     rng = np.random.default_rng(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    train_wavs, train_labels = load_split(args.asvspoof, "train", args.workers)
-    dev_wavs, dev_labels = load_split(args.asvspoof, "dev", args.workers)
+    train_wavs, train_labels = load_split(args, "train")
+    dev_wavs, dev_labels = load_split(args, "dev")
     lengths = [w.size for w in train_wavs]
 
     model = LCNN().to(device)

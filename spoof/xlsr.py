@@ -59,5 +59,17 @@ def pooled_states(model, wavs: list[np.ndarray]) -> np.ndarray:
         return (summed / frames[:, None, None]).float().cpu().numpy()
 
 
+def with_state_hooks(model: Wav2Vec2Model) -> Wav2Vec2Model:
+    """Installs the transformers hidden state hooks once, before DataParallel copies the model.
+
+    transformers installs them on first use and marks only the module it ran on.
+    DataParallel makes fresh replicas on every call, each installs the hooks again into
+    hook dicts shared with the model, and every layer is then recorded once per replica.
+    """
+    with torch.inference_mode():
+        model(torch.zeros(1, 16_000), output_hidden_states=True)
+    return model
+
+
 def load_xlsr() -> Wav2Vec2Model:
-    return Wav2Vec2Model.from_pretrained(NAME).eval()
+    return with_state_hooks(Wav2Vec2Model.from_pretrained(NAME).eval())
