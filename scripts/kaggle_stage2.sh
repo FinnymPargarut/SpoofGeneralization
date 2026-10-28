@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stage 2 on a Kaggle GPU session. Part frozen: SSL-AASIST on the stage 2 sets, the
 # RuASD shortcut audit, frozen XLS-R features and logistic regression. Part lcnn:
-# LFCC-LCNN with three seeds. Part all: both. Part smoke: both on SMOKE_ROWS rows of
+# LFCC-LCNN with three seeds, or the seeds in SEEDS, e.g. SEEDS="0 1". Part all: both. Part smoke: both on SMOKE_ROWS rows of
 # each class, one LCNN seed for one epoch, results in the scratch folder.
 # Notebook inputs: the ASVspoof 2019 mirror, the stage 1 and stage 2 inputs datasets;
 # internet on for the XLS-R weights. A rerun skips finished steps.
@@ -11,7 +11,7 @@ input=${2:-/kaggle/input}
 # Unpacked In-the-Wild and stage 2 audio must stay out of the saved working folder.
 scratch=${4:-/tmp}
 out=${3:-/kaggle/working/stage2}
-seeds=(0 1 2)
+read -ra seeds <<< "${SEEDS:-0 1 2}"
 epochs=100
 if [ "$part" = smoke ]; then
     out=$scratch/smoke
